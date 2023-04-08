@@ -1,0 +1,51 @@
+gram in the last 24 hours? Which social media channels were the most engaged?
+Here's a Python code example for the ETL process:
+
+python
+Copy code
+# Import required libraries
+import pandas as pd
+import psycopg2 #if using postgresql database
+import requests
+import json
+
+# Extract data from e-commerce website's database
+conn = psycopg2.connect(database="your_db_name", user="your_username", password="your_password", host="your_host", port="your_port")
+sales_data = pd.read_sql("SELECT * FROM sales_table WHERE order_date >= NOW() - INTERVAL '1 day'", conn)
+
+# Extract data from CRM system
+crm_data = pd.read_csv("crm_data.csv")
+crm_data = crm_data[crm_data["create_date"] >= pd.Timestamp.now() - pd.Timedelta(hours=24)]
+
+# Extract social media engagement data
+access_token = "your_facebook_access_token"
+page_id = "your_facebook_page_id"
+response = requests.get("https://graph.facebook.com/v12.0/{}/insights/page_engaged_users?access_token={}".format(page_id, access_token))
+json_data = json.loads(response.text)
+social_media_data = pd.DataFrame(json_data['data'][0]['values'][0]['value'], index=[0])
+social_media_data["platform"] = "facebook"
+
+access_token = "your_twitter_access_token"
+response = requests.get("https://api.twitter.com/2/tweets/counts/recent?query=from:your_twitter_handle&granularity=day", headers={"Authorization": "Bearer {}".format(access_token)})
+json_data = json.loads(response.text)
+social_media_data = social_media_data.append({"end_time": json_data['data'][0]['end'], "post_engagements": json_data['data'][0]['tweet_engagement']['all'], "platform": "twitter"}, ignore_index=True)
+
+access_token = "your_instagram_access_token"
+response = requests.get("https://graph.instagram.com/v13.0/your_instagram_business_account_id/insights?metric=impressions,reach,profile_views&period=day&access_token={}".format(access_token))
+json_data = json.loads(response.text)
+social_media_data = social_media_data.append({"end_time": pd.Timestamp.now(), "post_engagements": json_data['data'][0]['values'][0]['value'], "platform": "instagram"}, ignore_index=True)
+
+# Transform data
+# Clean and standardize sales and CRM data
+sales_data["order_date"] = pd.to_datetime(sales_data["order_date"])
+crm_data["create_date"] = pd.to_datetime(crm_data["create_date"])
+merged_data = pd.merge(sales_data, crm_data, on="customer_id", how="inner")
+merged_data["revenue"] = merged_data["price"] * merged_data["quantity"]
+merged_data["order_value"] = merged_data["revenue"] / merged_data["customer_id"].nunique()
+merged_data["lifetime_value"] = merged_data["revenue"] * 12 / merged_data["create_date"].dt.month
+
+# Summarize social media data
+social_media_summary = social_media_data.groupby("platform").sum().reset_index()
+
+# Load data into data warehouse
+# Use a cloud-based data warehouse platform such as Amazon Redshift or Google BigQuery
